@@ -29,7 +29,7 @@ Un mini‑projet web pour afficher et explorer facilement les statistiques d’u
 
 1. Clonez le dépôt  
    ```bash
-   git clone https://github.com/votre‐utilisateur/mc-stats-viewer.git
+   git clone git@github.com:KomsteRr/Minecraft-Stats-Viewer.git
    cd mc-stats-viewer
     ```
 
