@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Visualiseur de Stats Minecraft</title>
+  <style>
+    :root[data-theme="light"] { --bg-color:#f7f9fc; --card-bg:#fff; --primary-color:#4a90e2; --text-color:#333; --border-color:#e0e0e0; --sidebar-bg:#fff; }
+    :root[data-theme="dark"] { --bg-color:#1e1e1e; --card-bg:#2a2a2a; --primary-color:#4a90e2; --text-color:#f0f0f0; --border-color:#444; --sidebar-bg:#2a2a2a; }
+    *{box-sizing:border-box;}
+    body{margin:0;padding:0;font-family:'Segoe UI',sans-serif;background:var(--bg-color);color:var(--text-color);transition:.3s}
+    header{display:flex;align-items:center;justify-content:space-between;padding:10px 20px;background:var(--card-bg);border-bottom:1px solid var(--border-color);position:sticky;top:0;z-index:100}
+    header h1{margin:0;font-size:1.4em;color:var(--primary-color)}
+    nav#featureNav a{margin:0 10px;text-decoration:none;color:var(--text-color);font-weight:bold;cursor:pointer}
+    nav#featureNav a.active{color:var(--primary-color)}
+    #controls{padding:10px 20px;background:var(--card-bg);border-bottom:1px solid var(--border-color);display:flex;align-items:center;gap:10px}
+    #jsonFileInput,#searchInput,#themeToggle,#sortToggle{padding:5px;font-size:1em;cursor:pointer}
+    .container{display:flex}
+    #sidebar{position:sticky;top:120px;align-self:flex-start;width:200px;background:var(--sidebar-bg);border:1px solid var(--border-color);border-radius:8px;padding:16px;max-height:calc(100vh-140px);overflow-y:auto;transition:.3s}
+    #sidebar h2{margin-top:0;font-size:1.1em;color:var(--primary-color)}
+    #sidebar a{display:block;text-decoration:none;color:var(--text-color);font-size:.95em;margin:4px 0}
+    #main{flex:1;padding:20px}
+    .section{background:var(--card-bg);border:1px solid var(--border-color);border-radius:8px;padding:16px;margin-bottom:20px;transition:.3s}
+    table{width:100%;border-collapse:collapse;margin-top:10px}
+    th,td{padding:8px 12px;border-bottom:1px solid var(--border-color);text-align:left;transition:.3s}
+    tr:nth-child(even){background-color:rgba(0,0,0,0.03)}
+    #loader{text-align:center;margin-top:50px;font-size:1.2em}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Stats Minecraft</h1>
+    <nav id="featureNav">
+      <a data-feature="stats" class="active">Stats</a>
+      <a data-feature="search">Recherche</a>
+      <a data-feature="playtime">Playtime</a>
+      <a data-feature="distance">Distances</a>
+    </nav>
+  </header>
+  <div id="controls">
+    <input type="file" id="jsonFileInput" accept=".json">
+    <input type="text" id="searchInput" placeholder="Rechercher un mot-clé..." disabled style="display:none;">
+    <button id="themeToggle">Thème sombre</button>
+    <button id="sortToggle" style="display:none;">Trier ↑↓</button>
+  </div>
+  <div class="container">
+    <nav id="sidebar">
+      <h2>Catégories</h2>
+      <ul id="categoryList"></ul>
+    </nav>
+    <div id="main">
+      <div id="loader" style="display:none;">Chargement...</div>
+      <div id="content"></div>
+    </div>
+  </div>
+  <script>
+    // Theme toggle
+    const themeToggle = document.getElementById('themeToggle');
+    const root = document.documentElement;
+    const savedTheme = localStorage.getItem('theme') || 'light';
+    root.setAttribute('data-theme', savedTheme);
+    themeToggle.textContent = savedTheme === 'light' ? 'Thème sombre' : 'Thème clair';
+    themeToggle.onclick = () => {
+      const next = root.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+      root.setAttribute('data-theme', next);
+      localStorage.setItem('theme', next);
+      themeToggle.textContent = next === 'light' ? 'Thème sombre' : 'Thème clair';
+    };
+    // Feature nav
+    const navLinks = document.querySelectorAll('#featureNav a');
+    let currentFeature = 'stats';
+    navLinks.forEach(link => link.onclick = () => { navLinks.forEach(l => l.classList.remove('active')); link.classList.add('active'); currentFeature = link.dataset.feature; renderView(); });
+    // Elements
+    const input = document.getElementById('jsonFileInput');
+    const searchInput = document.getElementById('searchInput');
+    const sortToggle = document.getElementById('sortToggle');
+    const sidebar = document.getElementById('sidebar');
+    const categoryList = document.getElementById('categoryList');
+    const loader = document.getElementById('loader');
+    const content = document.getElementById('content');
+    let allStats = {};
+    let distanceAsc = true;
+    // File load
+    input.onchange = e => {
+      const file = e.target.files[0]; if (!file) return;
+      loader.style.display = 'block'; content.innerHTML = ''; categoryList.innerHTML = ''; searchInput.value = ''; searchInput.disabled = true;
+      const reader = new FileReader();
+      reader.onload = ev => { try { allStats = JSON.parse(ev.target.result).stats || {}; } catch { allStats = {}; } finally { loader.style.display = 'none'; searchInput.disabled = false; renderView(); } };
+      reader.readAsText(file);
+    };
+    // Search input
+    searchInput.oninput = () => { if (currentFeature === 'search') renderSearch(); };
+    // Sort toggle for distances
+    sortToggle.onclick = () => { distanceAsc = !distanceAsc; renderDistance(); };
+    function renderView() {
+      content.innerHTML = '';
+      sidebar.style.display = currentFeature === 'stats' ? 'block' : 'none';
+      searchInput.style.display = currentFeature === 'search' ? 'inline-block' : 'none';
+      sortToggle.style.display = currentFeature === 'distance' ? 'inline-block' : 'none';
+      if (currentFeature === 'stats') renderStats(allStats);
+      else if (currentFeature === 'search') renderSearch();
+      else if (currentFeature === 'playtime') renderPlaytime();
+      else if (currentFeature === 'distance') renderDistance();
+    }
+    function renderStats(stats) {
+      loader.style.display = 'none'; categoryList.innerHTML = '';
+      Object.entries(stats).forEach(([cat, entries]) => {
+        const id = cat.replace(/[:]/g, '-');
+        const li = document.createElement('li');
+        const a = document.createElement('a'); a.href = `#${id}`; a.textContent = cat.replace('minecraft:', '').replace(/_/g, ' ');
+        li.appendChild(a); categoryList.appendChild(li);
+        const section = document.createElement('div'); section.className = 'section'; section.id = id;
+        section.innerHTML = `<h2>${a.textContent}</h2>`;
+        const table = document.createElement('table');
+        table.innerHTML = '<thead><tr><th>Objet/Événement</th><th>Quantité</th></tr></thead>';
+        const tbody = document.createElement('tbody');
+        Object.entries(entries).sort((a,b)=>b[1]-a[1]).forEach(([k,v])=>{
+          const tr = document.createElement('tr'), td1 = document.createElement('td'), td2 = document.createElement('td');
+          td1.textContent = k.replace('minecraft:','').replace(/_/g,' '); td2.textContent = v; tr.append(td1,td2); tbody.appendChild(tr);
+        }); table.appendChild(tbody); section.appendChild(table); content.appendChild(section);
+      });
+    }
+    function renderSearch() {
+      const term = searchInput.value.trim().toLowerCase(); content.innerHTML = ''; if (!term) return;
+      Object.entries(allStats).forEach(([cat, entries]) => {
+        const matches = Object.entries(entries).filter(([k]) => k.toLowerCase().includes(term)); if (!matches.length) return;
+        const section = document.createElement('div'); section.className = 'section'; section.innerHTML = `<h2>${cat.replace('minecraft:', '').replace(/_/g, ' ')}</h2>`;
+        const table = document.createElement('table'); table.innerHTML = '<thead><tr><th>Objet/Événement</th><th>Quantité</th></tr></thead>';
+        const tbody = document.createElement('tbody'); matches.sort((a,b)=>b[1]-a[1]).forEach(([k,v])=>{const tr=document.createElement('tr'),td1=document.createElement('td'),td2=document.createElement('td');td1.textContent=k.replace('minecraft:','').replace(/_/g,' ');td2.textContent=v;tr.append(td1,td2);tbody.appendChild(tr);} ); table.appendChild(tbody); section.appendChild(table); content.appendChild(section);
+      });
+    }
+    function renderPlaytime() {
+      content.innerHTML = '';
+      const custom = allStats['minecraft:custom'] || {};
+      const ticks = custom['minecraft:play_time'] || 0;
+      const seconds = Math.floor(ticks / 20);
+      const h = Math.floor(seconds / 3600), m = Math.floor((seconds % 3600) / 60), s = seconds % 60;
+      const txt = `${h}h ${m}m ${s}s`;
+      const section = document.createElement('div'); section.className = 'section';
+      section.innerHTML = `<h2>Temps de jeu</h2><p>Playtime total : <strong>${txt}</strong></p>`;
+      content.appendChild(section);
+    }
+    function renderDistance() {
+      content.innerHTML = '';
+      const custom = allStats['minecraft:custom'] || {};
+      let entries = Object.entries(custom).filter(([k]) => k.endsWith('_one_cm'));
+      if (!entries.length) { content.innerHTML = '<p>Aucune donnée de distance disponible.</p>'; return; }
+      entries = entries.map(([k, v]) => ({ key: k, rawMeters: v / 100 }));
+      entries.sort((a, b) => distanceAsc ? a.rawMeters - b.rawMeters : b.rawMeters - a.rawMeters);
+      const section = document.createElement('div'); section.className = 'section'; section.innerHTML = '<h2>Distances parcourues</h2>';
+      const table = document.createElement('table'); table.innerHTML = '<thead><tr><th>Type</th><th>Distance</th><th>Blocks</th></tr></thead>';
+      const tbody = document.createElement('tbody');
+      entries.forEach(item => {
+        const raw = item.rawMeters;
+        let displayValue = raw;
+        let unit = 'm';
+        if (raw >= 1000) { displayValue = raw / 1000; unit = 'km'; }
+        const blocks = Math.round(raw);
+        const name = item.key.replace('minecraft:', '').replace(/_one_cm/, '').replace(/_/g, ' ');
+        const tr = document.createElement('tr');
+        const td1 = document.createElement('td'); td1.textContent = name;
+        const td2 = document.createElement('td'); td2.textContent = `${displayValue.toFixed(2)} ${unit}`;
+        const td3 = document.createElement('td'); td3.textContent = `${blocks}`;
+        tr.append(td1, td2, td3); tbody.appendChild(tr);
+      });
+      table.appendChild(tbody); section.appendChild(table); content.appendChild(section);
+    }
+  </script>
+</body>
+</html>
